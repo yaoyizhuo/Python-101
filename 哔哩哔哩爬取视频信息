@@ -1,0 +1,116 @@
+import re
+import requests
+import threading
+import json
+import csv
+from queue import Queue
+
+class Producted(threading.Thread):
+    def __init__(self,url_queue,data_queue,*args,**kwargs):
+        super(Producted, self).__init__(*args, **kwargs)
+        self.url_queue = url_queue
+        self.data_queue = data_queue
+    def run(self):
+        while True:
+            if self.url_queue.empty():
+                break
+            url = self.url_queue.get()
+            self.get_data(url)
+    #获取所需要的数据
+    def get_data(self,url):
+        text = requests.get(url).content.decode('utf-8')
+        content = json.loads(text)
+
+        title = content['data']['title']
+        author = content['data']['owner']['name']
+        info = content['data']['desc']
+        info = re.sub(r'\n','',info)
+        aid = 'av'+str(content['data']['stat']['aid'])
+        view = content['data']['stat']['view']
+        coin = content['data']['stat']['coin']
+        share = content['data']['stat']['share']
+        like = content['data']['stat']['like']
+
+        self.data_queue.put((title,author,info,aid,view,coin,share,like))
+
+class Contident(threading.Thread):
+    def __init__(self,url_queue,data_queue,keyword,*args,**kwargs):
+        super(Contident, self).__init__(*args, **kwargs)
+        self.url_queue = url_queue
+        self.data_queue = data_queue
+        self.keyword = keyword
+
+    def run(self):
+        while True:
+            if self.url_queue.empty() and self.data_queue.empty():
+                break
+            # print(self.data_queue.get())
+            # title,author,info,aid,view,coin,share,like = self.data_queue.get()
+            data = []
+            # data = (title,author,info,aid,view,coin,share,like)
+
+            while True:
+                a = self.data_queue.get()
+                if data_queue == None:
+                    break
+                else:
+                    data.append(a)
+            data = [tuple(data)]
+            print(data)
+
+            with open('%s.csv'%self.keyword,'a', encoding='utf-8', newline='')as fp:
+                write = csv.writer(fp)
+                # write.writerows(self.data_queue.get())
+                write.writerows(data)
+
+                fp.close()
+
+if __name__ == '__main__':
+    handers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.122 Safari/537.36'
+    }
+    keywords = ['简历','简历模板','面试','实习','找工作','笔试','职场']
+    title = ['title', 'author', 'info', 'aid', 'view', 'coin', 'share', 'like']
+
+    for keyword in keywords:
+        #写入标题
+        with open('%s.csv'%keyword, 'w', encoding='utf-8', newline='')as fp:
+            write = csv.writer(fp)
+            write.writerow(title)
+            fp.close()
+
+        url_keyword = 'https://search.bilibili.com/all?keyword=%s'%keyword
+        #获取每一个问题的页数
+        text_keyword = requests.get(url_keyword,handers).content.decode('utf-8')
+        pages = re.findall(r'<button class="pagination-btn">(.*?)</button>',text_keyword,re.DOTALL)[0]
+        #去除没必要的东西
+        pages = re.sub(r'\n','',pages)
+        pages = int(re.sub(r' ', '', pages))
+
+        #将每一页的链接和每一页的数据建立一个队列
+        url_queue = Queue(20*pages)
+        data_queue = Queue(100000000)
+
+        for i in range(1,pages+1):
+            page_url = 'https://search.bilibili.com/all?keyword=%s&page=%d'%(keyword,i)
+            page_text = requests.get(page_url,handers).content.decode('utf-8')
+            url_cids = re.findall('<a href=".*?video/(.*?)/?from.*?">',page_text,re.DOTALL)
+            url_videos = []
+            for url_cid in url_cids:
+                url_cid = url_cid[0:-1]
+                # print('https://api.bilibili.com/x/web-interface/view?&bvid='+url_cid)
+                url_videos.append('https://api.bilibili.com/x/web-interface/view?&bvid='+url_cid)
+
+            for url_video in url_videos:
+                # print('https:'+url_vidoe)
+                url_queue.put(url_video)
+
+            for i in range(10):
+                t = Producted(url_queue, data_queue)
+                t.start()
+
+
+            for i in range(10):
+                t = Contident(url_queue,data_queue,keyword)
+                t.start()
+
