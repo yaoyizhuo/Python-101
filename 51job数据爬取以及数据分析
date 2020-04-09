@@ -1,0 +1,146 @@
+#完整代码
+
+import requests
+import re
+import csv
+import threading
+import matplotlib.pyplot as plt   #绘图
+import jieba    #开源中文
+from queue import Queue
+from wordcloud import WordCloud
+
+# 获取城市的id
+def cities_ids():
+    for city in cities:
+        # 第一次正则获取各个城市的网页
+        mession = re.findall(r'<span><a href="(.*)">%s</a></span>' % city, text_main)
+        url_city = 'https:' + mession[0]
+        text_city = requests.get(url_city, headers).content.decode('gbk')
+        # 第二次正则来获取各个城市的id
+        id = re.findall(r'id="citycode" value="(.*?)"', text_city)
+        ids.append(id[0])
+
+class Producted(threading.Thread):
+    def __init__(self,url_queue,data_queue,*args,**kwargs):
+        super(Producted, self).__init__(*args, **kwargs)
+        self.url_queue = url_queue
+        self.data_queue = data_queue
+
+    def run(self):
+        while True:
+            if self.url_queue.empty():
+                break
+            url_page = self.url_queue.get()
+            self.get_data(url_page)
+
+    def get_data(self,url_page):
+        text_page = requests.get(url_page, headers).content.decode('gbk')
+
+        # 招聘信息网页
+        url_zps_ = re.findall(r'<div class="el">.*?href="(.*?)"', text_page, re.DOTALL)
+
+        # 使用代理,获取职业信息
+        s = requests.session()
+        s.proxies = {"https": "47.100.104.247:8080"}
+        s.headers = headers
+        for i in range(len(url_zps_)):
+            text_zp = s.get(url_zps_[i]).content.decode('gbk', 'ignore')
+            # 获岗位要求
+            mession_zps = re.findall(r'<div class="bmsg job_msg inbox">(.*?)</div>', text_zp, re.DOTALL)
+            if len(mession_zps) == 0:
+                continue
+            # 去除杂物
+            for mession_zp in mession_zps:
+                mession_zp = re.sub(r'<.*?>', '', mession_zp)
+                mession_zp = re.sub(r' ', '', mession_zp)
+                mession_zp = re.sub(r'\r\n', '', mession_zp)
+                mession_zp = re.sub(r'&nbsp;', '', mession_zp)
+                print(mession_zp)
+
+                self.data_queue.put((mession_zp))
+
+
+class Contident(threading.Thread):
+    def __init__(self,url_queue,data_queue,*args,**kwargs):
+        super(Contident, self).__init__(*args, **kwargs)
+        self.url_queue = url_queue
+        self.data_queue = data_queue
+
+    def run(self):
+        while True:
+            if self.url_queue.empty() and self.data_queue.empty():
+                break
+
+            with open('Python.txt','a', encoding='utf-8')as fp:
+                fp.write(self.data_queue.get())
+def CiYun():
+    # 导入
+    text = open(r'.\Python.txt', 'r', encoding='utf-8').read()
+    # 去除无用的词语
+    exclude = {'岗位职责', '熟悉', '任职', '要求', '职能', '类别', '使用', '熟练', '关键字', '工程师',
+               '开发', '能力', '负责', '测试', '项目', '沟通', '良好', '学习', '以上学历', '以及', '以上'}
+
+    # 进行分词
+    cut_text = jieba.cut(text)
+    result = ' '.join(cut_text)
+    # 生成词云图
+    wc = WordCloud(
+        # 字体路径
+        font_path=r'.\Deng.ttf',
+        # 背景颜色
+        background_color='white',
+        width=500,
+        height=350,
+        max_font_size=50,
+        stopwords=exclude
+    )
+
+    wc.generate(result)
+    # 显示图片
+    plt.figure('Python')
+    plt.imshow(wc)
+    plt.axis('off')
+    plt.show()
+
+
+if __name__ == '__main__':
+    headers = {
+        'Use-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.122 Safari/537.36'
+    }
+    cities = ['北京', '上海', '广州', '深圳', '成都', '杭州', '重庆', '武汉', '苏州', '天津', '南京', '西安', '郑州', '长沙',
+              '沈阳', '青岛', '宁波', '东莞', '无锡']
+    ids = []
+
+    url_main = 'https://search.51job.com/list/000000,000000,0000,00,9,99,%2520,2,1.html'
+    text_main = requests.get(url_main, headers).content.decode('gbk')
+
+    cities_ids()
+
+    time
+    # 获取每个城市的python有多少页数
+    for id in ids:
+        url_queue = Queue(100000000000)
+        data_queue = Queue(1000000000000)
+
+        pageone = 'https://search.51job.com/list/%s,000000,0000,00,9,99,Python,2,1.html' % (id)
+        text_page = requests.get(pageone, headers).content.decode('gbk')
+        # 查看有多少页
+        pages = re.findall(r'共(.*?)页', text_page)
+        pages_position = int(pages[0])
+
+        # 获取每一页的数据
+        for page in range(1, pages_position + 1):
+            url_page = 'https://search.51job.com/list/%s,000000,0000,00,9,99,Python,2,%d.html' % (id, page)
+            url_queue.put(url_page)
+
+
+        for i in range(10):
+            t = Producted(url_queue,data_queue)
+            t.start()
+
+        for i in range(10):
+            t = Contident(url_queue,data_queue)
+            t.start()
+
+    CiYun()
+
